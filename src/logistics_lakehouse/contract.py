@@ -45,6 +45,15 @@ class EventConflict(ContractError):
         self.key = key
 
 
+def require_fresh_rebuild(*, feed_has_rows: bool, silver_exists: bool) -> None:
+    """Check that a single-update rebuild starts without prior shipment state."""
+    if feed_has_rows or silver_exists:
+        raise ContractError(
+            "REBUILD_TARGET_NOT_FRESH",
+            "Use a fresh dev instance with an empty feed and no Silver table.",
+        )
+
+
 def canonical_json(value: object) -> bytes:
     return json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
