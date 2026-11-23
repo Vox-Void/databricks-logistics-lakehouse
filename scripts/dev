@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+command="${1:-help}"
+if [[ $# -gt 0 ]]; then shift; fi
+case "$command" in
+  bootstrap)
+    uv sync --locked
+    uv run --locked python -m logistics_lakehouse.fixtures "$@"
+    ;;
+  test)
+    uv run --locked ruff format --check . scripts/cloud
+    uv run --locked ruff check . scripts/cloud
+    uv run --locked mypy src/logistics_lakehouse
+    uv run --locked python -m compileall -q src
+    uv run --locked python scripts/verify_bundle.py
+    uv run --locked pytest "$@"
+    ;;
+  demo|eval)
+    mkdir -p artifacts
+    uv run --locked python -m logistics_lakehouse.reference "$@" | tee artifacts/local-reference.json
+    ;;
+  *)
+    echo 'Usage: ./scripts/dev {bootstrap|test|demo|eval}'
+    [[ "$command" == help ]]
+    ;;
+esac

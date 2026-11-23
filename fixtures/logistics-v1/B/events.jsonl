@@ -1,0 +1,4 @@
+{"effective_at":"2026-01-07T09:20:00Z","hub":"CPT","op":"UPSERT","promised_at":"2026-01-07T10:30:00Z","shipment_id":"S100","source_position":30,"status":"IN_TRANSIT"}
+{"effective_at":"2026-01-07T10:00:00Z","hub":"CPT","op":"UPSERT","promised_at":"2026-01-07T10:30:00Z","shipment_id":"S100","source_position":41,"status":"DELIVERED"}
+{"effective_at":"2026-01-07T09:40:00Z","hub":"JNB","op":"UPSERT","promised_at":"2026-01-07T12:00:00Z","shipment_id":"S200","source_position":35,"status":"IN_TRANSIT"}
+{"effective_at":"2026-01-07T11:00:00Z","hub":"DBN","op":"UPSERT","promised_at":"2026-01-07T13:00:00Z","shipment_id":"S200","source_position":60,"status":"CREATED"}

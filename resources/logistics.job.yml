@@ -1,0 +1,40 @@
+resources:
+  jobs:
+    logistics_wave:
+      name: logistics-wave-${var.schema}
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      parameters:
+        - name: wave
+          default: ''
+      tasks:
+        - task_key: publish_wave
+          notebook_task:
+            notebook_path: ../src/notebooks/publish_wave.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              landing_path: ${var.landing_path}
+              fixture_version: logistics-v1
+              commit_sha: ${var.commit_sha}
+              source_root: ${workspace.file_path}
+        - task_key: update_lakehouse
+          depends_on:
+            - task_key: publish_wave
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.logistics.id}
+            full_refresh: false
+        - task_key: verify_wave
+          depends_on:
+            - task_key: update_lakehouse
+          notebook_task:
+            notebook_path: ../src/notebooks/verify_wave.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              landing_path: ${var.landing_path}
+              fixture_version: logistics-v1
+              commit_sha: ${var.commit_sha}
+              pipeline_id: ${resources.pipelines.logistics.id}
+              source_root: ${workspace.file_path}

@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""Prepare, deploy and run the logistics bundle in a named workspace."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path, PurePosixPath
+from typing import Any
+from uuid import UUID
+
+ROOT = Path(__file__).resolve().parents[1]
+CLI_VERSION = "1.27.0"
+FIXTURE_VERSION = "logistics-v1"
+FIXTURE_FILES = ("events.jsonl", "manifest.json")
+PUBLISHED_WAVES = ("A", "B", "C")
+
+
+class CloudError(Exception):
+    """A workspace action stopped before it could complete."""
+
+
+def uc_identifier(value: str) -> str:
+    if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", value):
+        raise argparse.ArgumentTypeError(
+            "Use a lowercase name with letters, digits and underscores."
+        )
+    return value
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("preflight", "deploy", "stage", "run"))
+    parser.add_argument("--target", required=True, choices=("dev", "release"))
+    parser.add_argument(
+        "--profile", required=True, help="Named Databricks CLI configuration profile."
+    )
+    parser.add_argument(
+        "--catalog", required=True, type=uc_identifier, help="Existing Unity Catalog catalog."
+    )
+    parser.add_argument(
+        "--dev-instance", type=uc_identifier, help="Isolate a dev schema and its bundle state."
+    )
+    parser.add_argument(
+        "--schema", type=uc_identifier, help="Isolated schema for the release target."
+    )
+    parser.add_argument("--release-root", help="Shared workspace directory for the release bundle.")
+    parser.add_argument(
+        "--release-service-principal", type=UUID, help="Application ID of the release run identity."
+    )
+    parser.add_argument("--wave", choices=(*PUBLISHED_WAVES, "AB"))
+    args = parser.parse_args(argv)
+
+    if not args.profile.strip() or args.profile.casefold() == "default":
+        parser.error("--profile must name a workspace profile other than DEFAULT.")
+    if (args.action in ("stage", "run")) != (args.wave is not None):
+        parser.error("--wave is required for stage and run and applies only to those commands.")
+    if args.wave == "AB" and (
+        args.action != "run" or args.target != "dev" or not args.dev_instance
+    ):
+        parser.error("AB runs once through a separate dev instance. Stage A and B individually.")
+
+    release_settings = (args.schema, args.release_root, args.release_service_principal)
+    if args.target == "dev" and any(release_settings):
+        parser.error(
+            "--schema, --release-root and --release-service-principal apply only to release."
+        )
+    if args.target == "release":
+        if not all(release_settings) or args.dev_instance:
+            parser.error(
+                "Release requires --schema, --release-root and --release-service-principal."
+            )
+        if args.schema.startswith("logistics_dev_"):
+            parser.error("Select a schema reserved for release.")
+        root = PurePosixPath(args.release_root)
+        if (
+            len(root.parts) < 4
+            or root.parts[:2] != ("/", "Workspace")
+            or root.parts[2].casefold() == "users"
+            or str(root) != args.release_root
+            or ".." in root.parts
+            or any(char in args.release_root for char in (",", "\\", "\n", "\r"))
+        ):
+            parser.error("Use a dedicated release directory under a shared /Workspace path.")
+    return args
+
+
+def dev_schema(user_name: str, instance: str | None) -> str:
+    identity = user_name.casefold()
+    name = re.sub(r"[^a-z0-9]+", "_", identity.split("@", maxsplit=1)[0]).strip("_")
+    suffix = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
+    schema = f"logistics_dev_{name[:24] or 'user'}_{suffix}"
+    return f"{schema}_{instance}" if instance else schema
+
+
+def source_revision() -> str:
+    git = shutil.which("git")
+    if git is None:
+        return "unrecorded"
+    revision = subprocess.run(
+        [git, "rev-parse", "--verify", "HEAD"], cwd=ROOT, capture_output=True, text=True
+    )
+    state = subprocess.run([git, "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True)
+    if revision.returncode == state.returncode == 0 and not state.stdout.strip():
+        return revision.stdout.strip()
+    return "unrecorded"
+
+
+class Databricks:
+    def __init__(self, executable: str, profile: str) -> None:
+        self.executable = executable
+        self.profile = profile
+        # The CLI reads the selected profile from its config file.
+        self.env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("DATABRICKS_") or key == "DATABRICKS_CONFIG_FILE"
+        }
+
+    def call(
+        self, *command: str, profile: bool = True, capture: bool = False, required: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        flags = ("--profile", self.profile) if profile else ()
+        result = subprocess.run(
+            [self.executable, *command, *flags],
+            cwd=ROOT,
+            env=self.env,
+            capture_output=capture,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if required and result.returncode:
+            detail = (result.stderr or "").strip()
+            message = f"Databricks {' '.join(command[:2])} exited with status {result.returncode}."
+            raise CloudError(f"{message}\n{detail}" if detail else message)
+        return result
+
+    def read_json(self, *command: str, profile: bool = True) -> Any:
+        result = self.call(*command, "--output", "json", profile=profile, capture=True)
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise CloudError(
+                f"Databricks {command[0]} {command[1]} returned invalid JSON."
+            ) from exc
+
+
+def connect(profile: str) -> tuple[Databricks, str, str]:
+    executable = shutil.which("databricks")
+    if executable is None:
+        raise CloudError(f"Put Databricks CLI {CLI_VERSION} on PATH.")
+    cli = Databricks(executable, profile)
+    version = cli.call("--version", profile=False, capture=True).stdout.strip()
+    if version != f"Databricks CLI v{CLI_VERSION}":
+        raise CloudError(
+            f"Databricks CLI {CLI_VERSION} is required. Found {version or 'no version'}."
+        )
+
+    metadata = cli.read_json("auth", "profiles", "--skip-validate", profile=False)
+    profiles = metadata.get("profiles") or []
+    selected = next((entry for entry in profiles if entry.get("name") == profile), None)
+    if selected is None or not selected.get("host"):
+        raise CloudError("Sign into a workspace with the named Databricks CLI profile first.")
+    host = selected["host"]
+    identity = cli.read_json("current-user", "me")
+    user_name = identity.get("userName") or identity.get("applicationId")
+    if not isinstance(user_name, str) or not user_name:
+        raise CloudError("The selected workspace profile did not resolve to a run identity.")
+    return cli, host, user_name
+
+
+def preflight(
+    cli: Databricks, catalog: str, schema: str, run_identity: str, bundle_options: list[str]
+) -> None:
+    cli.read_json("catalogs", "get", catalog)
+    schemas = cli.read_json("schemas", "list", catalog) or []
+    if any(entry["name"] == schema for entry in schemas):
+        volumes = cli.read_json("volumes", "list", catalog, schema) or []
+        tables = cli.read_json("tables", "list", catalog, schema) or []
+        if any(
+            entry.get("name") == "landing" and entry.get("volume_type") == "MANAGED"
+            for entry in volumes
+        ) and any(entry.get("name") == "shipment_cdc_feed" for entry in tables):
+            print("The managed landing volume and feed are visible.", flush=True)
+        else:
+            print("Run db/bootstrap.sql to create the managed landing volume and feed.", flush=True)
+        grants = cli.read_json(
+            "grants", "get-effective", "schema", f"{catalog}.{schema}", "--principal", run_identity
+        )
+        names = sorted(
+            {
+                privilege.get("privilege", privilege) if isinstance(privilege, dict) else privilege
+                for assignment in grants.get("privilege_assignments") or []
+                for privilege in assignment.get("privileges") or []
+            }
+        )
+        print(
+            f"Visible effective schema grants for the run identity are {', '.join(names) or 'none'}.",
+            flush=True,
+        )
+    else:
+        print("Run db/bootstrap.sql to create the target schema before staging a wave.", flush=True)
+    cli.read_json("pipelines", "list-pipelines", "--limit", "1")
+    cli.call("bundle", "validate", *bundle_options)
+    print(
+        "Confirm serverless Jobs access and pipeline quota in the selected workspace before running.",
+        flush=True,
+    )
+
+
+def stage_wave(cli: Databricks, catalog: str, schema: str, landing_path: str, wave: str) -> None:
+    volume = cli.read_json("volumes", "read", f"{catalog}.{schema}.landing")
+    if volume.get("volume_type") != "MANAGED":
+        raise CloudError("The selected landing volume must be managed by Unity Catalog.")
+    local = ROOT / "fixtures" / FIXTURE_VERSION / wave
+    for filename in FIXTURE_FILES:
+        if not (local / filename).is_file():
+            raise CloudError(f"Missing committed fixture file {local / filename}.")
+
+    remote = f"dbfs:{landing_path}/{FIXTURE_VERSION}/{wave}"
+    cli.call("fs", "mkdir", remote)
+    with tempfile.TemporaryDirectory(prefix="logistics-fixture-") as scratch:
+        # Verify the event file first, then publish its manifest.
+        for filename in FIXTURE_FILES:
+            source = local / filename
+            destination = f"{remote}/{filename}"
+            download_path = Path(scratch) / filename
+            upload = cli.call(
+                "fs",
+                "cp",
+                str(source),
+                destination,
+                "--overwrite=false",
+                capture=True,
+                required=False,
+            )
+            download = cli.call(
+                "fs", "cp", destination, str(download_path), capture=True, required=False
+            )
+            if download.returncode:
+                detail = (upload.stderr or download.stderr or "").strip()
+                raise CloudError(f"Could not check staged {filename}. {detail}".strip())
+            if source.read_bytes() != download_path.read_bytes():
+                raise CloudError(
+                    f"Staged {filename} differs from the fixture. Use a new fixture version."
+                )
+    print(f"Verified both files for wave {wave} under {remote}.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        cli, host, user_name = connect(args.profile)
+        schema = dev_schema(user_name, args.dev_instance) if args.target == "dev" else args.schema
+        landing_path = f"/Volumes/{args.catalog}/{schema}/landing"
+        bundle_vars = {
+            "catalog": args.catalog,
+            "schema": schema,
+            "landing_path": landing_path,
+            "commit_sha": source_revision(),
+        }
+        run_identity = user_name
+        if args.target == "release":
+            run_identity = str(args.release_service_principal)
+            bundle_vars["release_root"] = args.release_root
+            bundle_vars["release_service_principal"] = run_identity
+        bundle_options = ["--target", args.target]
+        for name, value in bundle_vars.items():
+            bundle_options.extend(("--var", f"{name}={value}"))
+
+        print(f"Selected {args.target} on {host} using profile {args.profile}.", flush=True)
+        print(f"Unity Catalog target is {args.catalog}.{schema}.", flush=True)
+        if args.action == "preflight":
+            preflight(cli, args.catalog, schema, run_identity, bundle_options)
+        elif args.action == "deploy":
+            cli.call("bundle", "validate", *bundle_options)
+            cli.call("bundle", "deploy", *bundle_options)
+        elif args.action == "stage":
+            stage_wave(cli, args.catalog, schema, landing_path, args.wave)
+        else:
+            cli.call(
+                "bundle", "run", "logistics_wave", *bundle_options, "--params", f"wave={args.wave}"
+            )
+    except (CloudError, OSError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

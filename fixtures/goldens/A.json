@@ -1,0 +1,78 @@
+{
+  "current": [
+    {
+      "__END_AT": null,
+      "__START_AT": {
+        "effective_at": "2026-01-07T10:00:00Z",
+        "source_position": 41
+      },
+      "hub": "CPT",
+      "promised_at": "2026-01-07T10:30:00Z",
+      "shipment_id": "S100",
+      "status": "DELIVERED"
+    }
+  ],
+  "silver": [
+    {
+      "__END_AT": {
+        "effective_at": "2026-01-07T10:00:00Z",
+        "source_position": 40
+      },
+      "__START_AT": {
+        "effective_at": "2026-01-07T09:00:00Z",
+        "source_position": 10
+      },
+      "hub": "CPT",
+      "promised_at": "2026-01-07T10:30:00Z",
+      "shipment_id": "S100",
+      "status": "CREATED"
+    },
+    {
+      "__END_AT": {
+        "effective_at": "2026-01-07T10:00:00Z",
+        "source_position": 41
+      },
+      "__START_AT": {
+        "effective_at": "2026-01-07T10:00:00Z",
+        "source_position": 40
+      },
+      "hub": "CPT",
+      "promised_at": "2026-01-07T10:30:00Z",
+      "shipment_id": "S100",
+      "status": "OUT_FOR_DELIVERY"
+    },
+    {
+      "__END_AT": null,
+      "__START_AT": {
+        "effective_at": "2026-01-07T10:00:00Z",
+        "source_position": 41
+      },
+      "hub": "CPT",
+      "promised_at": "2026-01-07T10:30:00Z",
+      "shipment_id": "S100",
+      "status": "DELIVERED"
+    },
+    {
+      "__END_AT": {
+        "effective_at": "2026-01-07T10:05:00Z",
+        "source_position": 50
+      },
+      "__START_AT": {
+        "effective_at": "2026-01-07T09:05:00Z",
+        "source_position": 11
+      },
+      "hub": "JNB",
+      "promised_at": "2026-01-07T12:00:00Z",
+      "shipment_id": "S200",
+      "status": "CREATED"
+    }
+  ],
+  "sla": [
+    {
+      "current_shipments": 1,
+      "delivered_shipments": 1,
+      "hub": "CPT",
+      "on_time_shipments": 1
+    }
+  ]
+}

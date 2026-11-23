@@ -1,0 +1,42 @@
+name: Verify shipment reference and bundle
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install pinned tools
+        run: |
+          pipx install uv==0.13.9
+          cli_path="$RUNNER_TEMP/logistics-cli"
+          mkdir -p "$cli_path"
+          curl --fail --silent --show-error --location \
+            https://github.com/databricks/cli/releases/download/v1.27.0/databricks_cli_1.27.0_linux_amd64.zip \
+            --output "$cli_path/databricks.zip"
+          cd "$cli_path"
+          echo 'f654730e1b22990249becb9ba96acf4b71f18e2978e9e72abd4f1875f88e503c  databricks.zip' | sha256sum --check
+          unzip -q databricks.zip databricks
+          echo "$cli_path" >> "$GITHUB_PATH"
+      - name: Rebuild the fixture and check its hashes
+        run: |
+          ./scripts/dev bootstrap
+          git diff --exit-code -- fixtures
+      - name: Test the contract and check the CLI schema
+        run: ./scripts/dev test
+      - name: Produce a local reference report
+        run: ./scripts/dev demo
+      - name: Upload the reference report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: shipment-reference
+          path: artifacts/local-reference.json
+          if-no-files-found: error

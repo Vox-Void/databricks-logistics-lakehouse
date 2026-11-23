@@ -1,0 +1,17 @@
+resources:
+  pipelines:
+    logistics:
+      name: logistics-${var.schema}
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      root_path: ${workspace.file_path}/src
+      libraries:
+        - file:
+            path: ../src/pipelines/logistics.py
+      configuration:
+        logistics.catalog: ${var.catalog}
+        logistics.schema: ${var.schema}
+        spark.sql.session.timeZone: UTC

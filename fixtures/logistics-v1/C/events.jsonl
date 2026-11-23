@@ -1,0 +1,2 @@
+{"effective_at":"2026-01-07T10:00:00Z","hub":"CPT","op":"UPSERT","promised_at":"2026-01-07T10:35:00Z","shipment_id":"S100","source_position":41,"status":"DELIVERED"}
+{"effective_at":"2026-01-07T11:10:00Z","hub":"JNB","op":"UPSERT","promised_at":"2026-01-07T14:00:00Z","shipment_id":"S300","source_position":70,"status":"CREATED"}

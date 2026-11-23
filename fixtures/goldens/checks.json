@@ -1,0 +1,58 @@
+{
+  "A": {
+    "as_of": {
+      "s100_at_0930": "CREATED",
+      "s100_at_1000_position_40": "OUT_FOR_DELIVERY",
+      "s100_at_1000_position_41": "DELIVERED",
+      "s100_at_1000_timestamp_only": "DELIVERED",
+      "s200_at_1030_delete_gap": null,
+      "s200_at_1100": null
+    },
+    "error_code": null,
+    "feed_rows": 5,
+    "history_rows": 4,
+    "new_rows": 5
+  },
+  "B": {
+    "as_of": {
+      "s100_at_0930": "IN_TRANSIT",
+      "s100_at_1000_position_40": "OUT_FOR_DELIVERY",
+      "s100_at_1000_position_41": "DELIVERED",
+      "s100_at_1000_timestamp_only": "DELIVERED",
+      "s200_at_1030_delete_gap": null,
+      "s200_at_1100": "CREATED"
+    },
+    "error_code": null,
+    "feed_rows": 8,
+    "history_rows": 7,
+    "new_rows": 3
+  },
+  "B_replay": {
+    "as_of": {
+      "s100_at_0930": "IN_TRANSIT",
+      "s100_at_1000_position_40": "OUT_FOR_DELIVERY",
+      "s100_at_1000_position_41": "DELIVERED",
+      "s100_at_1000_timestamp_only": "DELIVERED",
+      "s200_at_1030_delete_gap": null,
+      "s200_at_1100": "CREATED"
+    },
+    "error_code": null,
+    "feed_rows": 8,
+    "history_rows": 7,
+    "new_rows": 0
+  },
+  "C": {
+    "as_of": {
+      "s100_at_0930": "IN_TRANSIT",
+      "s100_at_1000_position_40": "OUT_FOR_DELIVERY",
+      "s100_at_1000_position_41": "DELIVERED",
+      "s100_at_1000_timestamp_only": "DELIVERED",
+      "s200_at_1030_delete_gap": null,
+      "s200_at_1100": "CREATED"
+    },
+    "error_code": "EVENT_CONFLICT",
+    "feed_rows": 8,
+    "history_rows": 7,
+    "new_rows": 0
+  }
+}
