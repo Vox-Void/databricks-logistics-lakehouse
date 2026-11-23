@@ -16,6 +16,7 @@ from logistics_lakehouse.contract import (
     parse_event,
     plan_publication,
     read_wave,
+    require_fresh_rebuild,
 )
 from logistics_lakehouse.fixtures import (
     FIXTURE_ROOT,
@@ -50,6 +51,19 @@ def test_regeneration_matches_committed_bytes(tmp_path: Path) -> None:
         assert (
             (FIXTURE_ROOT / filename).read_bytes() == (tmp_path / filename).read_bytes() == contents
         )
+
+
+def test_rebuild_accepts_an_empty_feed_and_no_silver_table() -> None:
+    require_fresh_rebuild(feed_has_rows=False, silver_exists=False)
+
+
+@pytest.mark.parametrize(
+    "feed_has_rows,silver_exists", [(True, False), (False, True), (True, True)]
+)
+def test_rebuild_rejects_preexisting_state(feed_has_rows: bool, silver_exists: bool) -> None:
+    with pytest.raises(ContractError) as result:
+        require_fresh_rebuild(feed_has_rows=feed_has_rows, silver_exists=silver_exists)
+    assert result.value.code == "REBUILD_TARGET_NOT_FRESH"
 
 
 @pytest.mark.parametrize(

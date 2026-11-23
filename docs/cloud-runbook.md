@@ -59,6 +59,8 @@ Repeat preflight, bootstrap and deploy with `--dev-instance rebuild`. That optio
 ./scripts/cloud run --target dev --profile logistics-dev --catalog workspace --dev-instance rebuild --wave AB
 ```
 
+The publisher requires an empty feed and an absent Silver table in the selected schema. If `AB` fails after either wave writes rows, start the reconstruction again with a fresh dev instance name. Bootstrap its schema, deploy, and stage both waves there before running `AB`.
+
 ## Save evidence from the run
 
 - Record the Git commit, CLI version, workspace tier and the redacted validate and deploy transcript. Deploy from a clean checkout so the job report can record the revision.

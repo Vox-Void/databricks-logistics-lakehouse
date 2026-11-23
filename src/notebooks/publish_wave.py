@@ -36,7 +36,12 @@ if not source_root.is_absolute() or not str(source_root).startswith("/Workspace/
     raise ValueError("Expected an absolute Databricks Workspace file path")
 sys.path.insert(0, str(source_root / "src"))
 
-from logistics_lakehouse.contract import ContractError, plan_publication, read_wave
+from logistics_lakehouse.contract import (
+    ContractError,
+    plan_publication,
+    read_wave,
+    require_fresh_rebuild,
+)
 
 catalog, schema = params["catalog"], params["schema"]
 if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier) for identifier in (catalog, schema)):
@@ -116,7 +121,15 @@ def publish(wave_id):
 
 publication_started_at = datetime.now(UTC).isoformat()
 try:
-    reports = [publish(wave_id) for wave_id in ("A", "B")] if wave == "AB" else [publish(wave)]
+    if wave == "AB":
+        require_fresh_rebuild(
+            feed_has_rows=spark.table(feed).limit(1).count() > 0,
+            silver_exists=spark.catalog.tableExists(
+                f"`{catalog}`.`{schema}`.`silver_shipment_history`"
+            ),
+        )
+    wave_ids = ("A", "B") if wave == "AB" else (wave,)
+    reports = [publish(wave_id) for wave_id in wave_ids]
 except ContractError as error:
     print(json.dumps({"wave": wave, "result": "REJECTED", "reason": error.code}))
     raise RuntimeError(f"Wave {wave} rejected: {error.code}") from None
