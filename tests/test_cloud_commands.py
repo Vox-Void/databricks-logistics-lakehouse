@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+from logistics_lakehouse.fixtures import FIXTURE_VERSION, generate
+
 ROOT = Path(__file__).resolve().parents[1]
 OPTIONS = ["--target", "dev", "--profile", "logistics", "--catalog", "workspace"]
 
@@ -103,3 +105,42 @@ def test_staging_replays_exact_bytes_and_refuses_modified_events(
     assert cloud["main"](command) == 1
     assert all("manifest.json" not in " ".join(commands) for commands in cli.commands)
     assert cli.files[event_file] == b"different bytes"
+
+
+def test_staging_rejects_a_mismatched_local_file_before_upload(
+    cloud: dict[str, Any],
+    cli: FakeDatabricks,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setitem(cloud, "ROOT", tmp_path)
+    generate(tmp_path / "fixtures")
+    event_file = tmp_path / "fixtures" / FIXTURE_VERSION / "A" / "events.jsonl"
+    event_file.write_bytes(b"changed event bytes")
+
+    assert cloud["main"](["stage", *OPTIONS, "--wave", "A"]) == 1
+    assert "DIGEST_MISMATCH" in capsys.readouterr().err
+    assert not cli.commands
+    assert not cli.files
+
+
+def test_staging_uploads_the_validated_snapshot_if_the_local_file_changes(
+    cloud: dict[str, Any], cli: FakeDatabricks, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setitem(cloud, "ROOT", tmp_path)
+    generate(tmp_path / "fixtures")
+    event_file = tmp_path / "fixtures" / FIXTURE_VERSION / "A" / "events.jsonl"
+    validated = event_file.read_bytes()
+    original_call = cli.call
+
+    def edit_before_upload(*command: str, **kwargs: bool) -> subprocess.CompletedProcess[str]:
+        if command[:2] == ("fs", "mkdir"):
+            event_file.write_bytes(b"edited after validation")
+        return original_call(*command, **kwargs)
+
+    monkeypatch.setattr(cli, "call", edit_before_upload)
+
+    assert cloud["main"](["stage", *OPTIONS, "--wave", "A"]) == 0
+    (remote_events,) = (data for path, data in cli.files.items() if path.endswith("/events.jsonl"))
+    assert remote_events == validated

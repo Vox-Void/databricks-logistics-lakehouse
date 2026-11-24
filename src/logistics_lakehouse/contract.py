@@ -202,9 +202,16 @@ def read_wave(
     directory: Path, *, fixture_version: str | None = None, wave_id: str | None = None
 ) -> Wave:
     """Check the manifest, raw bytes and every event before returning a wave."""
-    manifest = _parse_manifest(
-        _read_json(_read_limited(directory / MANIFEST_FILE, MAX_MANIFEST_BYTES))
-    )
+    wave, _ = read_wave_files(directory, fixture_version=fixture_version, wave_id=wave_id)
+    return wave
+
+
+def read_wave_files(
+    directory: Path, *, fixture_version: str | None = None, wave_id: str | None = None
+) -> tuple[Wave, dict[str, bytes]]:
+    """Return the wave and the exact file bytes that passed validation."""
+    manifest_data = _read_limited(directory / MANIFEST_FILE, MAX_MANIFEST_BYTES)
+    manifest = _parse_manifest(_read_json(manifest_data))
     if (fixture_version is not None and manifest.fixture_version != fixture_version) or (
         wave_id is not None and manifest.wave != wave_id
     ):
@@ -227,7 +234,7 @@ def read_wave(
             events.append(parse_event(_read_json(line)))
         except ContractError as error:
             raise ContractError(error.code, f"Event line {position}. {error}") from error
-    return Wave(manifest, tuple(events))
+    return Wave(manifest, tuple(events)), {EVENT_FILE: data, MANIFEST_FILE: manifest_data}
 
 
 @dataclass(frozen=True)
@@ -252,6 +259,7 @@ def plan_publication(
     existing: Mapping[EventKey, str],
     *,
     source_file: str,
+    expected_conflict: bool = False,
 ) -> tuple[FeedRow, ...]:
     """Return distinct unseen rows, or raise before the caller writes anything."""
     pending: dict[EventKey, str] = {}
@@ -264,4 +272,8 @@ def plan_publication(
             rows.append(FeedRow(event, wave.manifest.wave, source_file, source_line))
         elif prior != digest:
             raise EventConflict(event.key)
+    if expected_conflict:
+        raise ContractError(
+            "EXPECTED_CONFLICT_MISSING", "Wave requires a conflicting event already in the feed."
+        )
     return tuple(rows)

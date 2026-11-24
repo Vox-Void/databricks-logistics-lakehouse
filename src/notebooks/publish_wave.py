@@ -95,7 +95,10 @@ def publish(wave_id):
     if len(previous) != len(known):
         raise RuntimeError("Feed contains more than one row for the same event key")
     proposed = plan_publication(
-        incoming, previous, source_file=str(source / incoming.manifest.file)
+        incoming,
+        previous,
+        source_file=str(source / incoming.manifest.file),
+        expected_conflict=wave_id == "C",
     )
 
     # One append records the accepted event and its publication provenance together.

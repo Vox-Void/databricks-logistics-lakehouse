@@ -17,9 +17,13 @@ from typing import Any
 from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
+# Load the fixture reader from this checkout for direct script execution.
+sys.path.insert(0, str(ROOT / "src"))
+from logistics_lakehouse.contract import EVENT_FILE, MANIFEST_FILE, ContractError, read_wave_files  # noqa: E402
+from logistics_lakehouse.fixtures import FIXTURE_VERSION  # noqa: E402
+
 CLI_VERSION = "1.27.0"
-FIXTURE_VERSION = "logistics-v1"
-FIXTURE_FILES = ("events.jsonl", "manifest.json")
+FIXTURE_FILES = (EVENT_FILE, MANIFEST_FILE)
 PUBLISHED_WAVES = ("A", "B", "C")
 
 
@@ -216,20 +220,25 @@ def preflight(
 
 
 def stage_wave(cli: Databricks, catalog: str, schema: str, landing_path: str, wave: str) -> None:
+    local = ROOT / "fixtures" / FIXTURE_VERSION / wave
+    try:
+        _, files = read_wave_files(local, fixture_version=FIXTURE_VERSION, wave_id=wave)
+    except ContractError as error:
+        raise CloudError(f"{wave}: {error.code}. {error}") from error
+
     volume = cli.read_json("volumes", "read", f"{catalog}.{schema}.landing")
     if volume.get("volume_type") != "MANAGED":
         raise CloudError("The selected landing volume must be managed by Unity Catalog.")
-    local = ROOT / "fixtures" / FIXTURE_VERSION / wave
-    for filename in FIXTURE_FILES:
-        if not (local / filename).is_file():
-            raise CloudError(f"Missing committed fixture file {local / filename}.")
 
     remote = f"dbfs:{landing_path}/{FIXTURE_VERSION}/{wave}"
     cli.call("fs", "mkdir", remote)
     with tempfile.TemporaryDirectory(prefix="logistics-fixture-") as scratch:
-        # Verify the event file first, then publish its manifest.
+        # Upload the validated bytes, starting with the event file.
+        snapshot = Path(scratch) / "upload"
+        snapshot.mkdir()
         for filename in FIXTURE_FILES:
-            source = local / filename
+            source = snapshot / filename
+            source.write_bytes(files[filename])
             destination = f"{remote}/{filename}"
             download_path = Path(scratch) / filename
             upload = cli.call(
@@ -247,7 +256,7 @@ def stage_wave(cli: Databricks, catalog: str, schema: str, landing_path: str, wa
             if download.returncode:
                 detail = (upload.stderr or download.stderr or "").strip()
                 raise CloudError(f"Could not check staged {filename}. {detail}".strip())
-            if source.read_bytes() != download_path.read_bytes():
+            if files[filename] != download_path.read_bytes():
                 raise CloudError(
                     f"Staged {filename} differs from the fixture. Use a new fixture version."
                 )

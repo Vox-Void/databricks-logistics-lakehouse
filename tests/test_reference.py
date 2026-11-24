@@ -181,6 +181,18 @@ def test_conflicts_leave_feed_unchanged_even_after_a_valid_new_key() -> None:
         publish_input(replace(c, events=(original, *c.events)), {})
 
 
+def test_rejection_fixture_cannot_publish_into_an_empty_feed() -> None:
+    c = wave("C")
+    with pytest.raises(ContractError) as result:
+        plan_publication(c, {}, source_file="C/events.jsonl", expected_conflict=True)
+    assert result.value.code == "EXPECTED_CONFLICT_MISSING"
+
+    known: dict[EventKey, str] = {}
+    publish_input(wave("A"), known)
+    with pytest.raises(EventConflict):
+        plan_publication(c, known, source_file="C/events.jsonl", expected_conflict=True)
+
+
 def test_reference_demo_matches_history_and_sla_goldens() -> None:
     report = run_demo()
     stages = report["stages"]

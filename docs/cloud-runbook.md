@@ -24,7 +24,7 @@ For a personal dev workspace, the signed-in user deploys and runs the Job and pi
 
 ## Deploy and process the waves
 
-Each stage command copies the committed event file first, confirms the stored bytes, then copies and confirms the manifest. Stage can be repeated after an interrupted upload. It reuses byte-for-byte matching files and stops if a file differs.
+Each stage command validates the local manifest and event file before uploading. It copies the checked event bytes first, confirms the stored bytes, then copies and confirms the manifest. Stage can be repeated after an interrupted upload. It reuses byte-for-byte matching files and stops if a file differs.
 
 ```sh
 ./scripts/cloud deploy --target dev --profile logistics-dev --catalog workspace
@@ -40,7 +40,7 @@ Each stage command copies the committed event file first, confirms the stored by
 - After A, check that the feed has five rows and Silver has four intervals.
 - After B, check that the feed has eight rows and Silver has seven intervals. Save the comparison report and the Silver and Gold digests.
 - The B replay should publish zero events and return the same digests.
-- C should fail in `publish_wave`. In the Job run, confirm that `update_lakehouse` and `verify_wave` were skipped. Query the feed, `silver_shipment_history`, `gold_shipments_current` and `gold_sla_by_hub` in the selected schema and compare their rows with B. The feed must still contain eight rows and no `S300`. Use [assertions.sql](../db/assertions.sql) to recheck the delete gap and the two versions sharing a timestamp.
+- C should fail with `EVENT_CONFLICT` in `publish_wave`. If the earlier event is missing, C fails with `EXPECTED_CONFLICT_MISSING`. In the Job run, confirm that `update_lakehouse` and `verify_wave` were skipped. Query the feed, `silver_shipment_history`, `gold_shipments_current` and `gold_sla_by_hub` in the selected schema and compare their rows with B. The feed must still contain eight rows and no `S300`. Use [assertions.sql](../db/assertions.sql) to recheck the delete gap and the two versions sharing a timestamp.
 
 The same source files support both `dev` and `release`. For a release run, use `--target release`, a profile for the intended workspace, `--schema` for its isolated schema, `--release-root` for its dedicated shared workspace directory, and `--release-service-principal` for the execution identity's application ID. Follow the same preflight and bootstrap steps before deploying. Give the service principal the runtime privileges described above and confirm that the deployer can select that identity. [Bundle run identities](https://docs.databricks.com/aws/en/dev-tools/bundles/run-as)
 

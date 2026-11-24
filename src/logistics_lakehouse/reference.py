@@ -223,7 +223,9 @@ def run_demo(root: Path = FIXTURE_ROOT) -> dict[str, object]:
         existing = {key: row.event.payload_sha256 for key, row in feed.items()}
         error_code = None
         try:
-            added = plan_publication(wave, existing, source_file=source_file)
+            added = plan_publication(
+                wave, existing, source_file=source_file, expected_conflict=step == "C"
+            )
         except EventConflict as error:
             added = ()
             error_code = error.code
